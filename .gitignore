@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+.yolo_config/
+models/
+data/
+outputs/
+*.mp4
+*.pt
+.DS_Store
+.env

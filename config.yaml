@@ -1,0 +1,107 @@
+# config.yaml — every tunable number for MVP 3 lives here.
+#
+# MVP 3 = MVP 1's CAMERA SWITCHING + ai-director2's BALL TRACKING, combined:
+#   several cameras -> per-camera high-recall ball tracker -> ball hand-off between cameras
+#   -> director picks the live camera -> virtual zoom follows the ball inside that camera.
+
+# ---------------------------------------------------------------------------------------------
+# CLIPS. Two kinds:
+#   mode: split  = ONE wide video cut into `num_cams` side-by-side strips (cam1 = left ... ).
+#                  The strips touch, so the ball can be handed from one camera to the next.
+#   mode: files  = separate camera videos (real cameras, e.g. phones on tripods), already in sync.
+#                  `start_seconds` per camera lines them up (the same moment in every file).
+# Paths can be absolute or start with ~. Videos are read in place, never copied.
+# ---------------------------------------------------------------------------------------------
+clips:
+  pano: # fixed panoramic camera, 2560x640, 141 s: the ball crosses all 3 cams (best test we have)
+    mode: split
+    video: "~/ai-director/ai-director/data/clips/yt-hbtfzwmdccw/clip.mp4"
+    num_cams: 3
+  spurs: # Tottenham–Watford tactical cam, 1920x1080, 300 s (MVP 1 clip; ball mostly in the middle strip)
+    mode: split
+    video: "~/ai-director/ai-director/clips/spurs_watford_5min.mp4"
+    num_cams: 3
+  # Example for real cameras (uncomment and fill in):
+  # mycams:
+  #   mode: files
+  #   cams:
+  #     - { video: "clips/cam1.mp4", start_seconds: 0.0 }
+  #     - { video: "clips/cam2.mp4", start_seconds: 1.4 }
+  #     - { video: "clips/cam3.mp4", start_seconds: 0.6 }
+  #   audio_from: 2
+
+# ---------------------------------------------------------------------------------------------
+# DETECTOR: football YOLO fine-tune from Hugging Face (classes: ball, goalkeeper, player, referee).
+# Downloaded once into models/best.pt. Runs locally, no API key.
+# ---------------------------------------------------------------------------------------------
+detector:
+  hf_repo: "gianpaj/football-players-detection-1"
+  hf_file: "weights/best.pt"
+  weights: "models/best.pt"
+  device: "mps" # Apple M1 GPU; "cpu" also works (about 3x slower); "cuda" on an NVIDIA machine
+  # Full-camera search. M1 timings per camera: 640 = 144 ms (finds players, misses the small ball),
+  # 1280 = 508 ms (finds the ball). While the ball is tracked, the zoomed patch finds it, so the
+  # full search only has to count players (cheap, 640). While no camera has the ball: 1280, more often.
+  global_imgsz_tracking: 640
+  global_every: 10
+  global_imgsz_lost: 1280
+  global_every_lost: 3
+  player_conf: 0.3
+  ball_conf_global: 0.15 # candidates below this are ignored in a full-frame search
+  ball_conf_patch: 0.10 # zoomed patches see the ball much better, so a lower floor is safe
+
+# ---------------------------------------------------------------------------------------------
+# BALL TRACKER (one per camera). Ported from ai-director2's HighRecallBallTracker, with fixes.
+# ---------------------------------------------------------------------------------------------
+ball_tracker:
+  start_conf: 0.30 # a NEW track needs at least this confidence (MVP 1: 0.15 let pitch marks become "balls")
+  min_conf_tracking: 0.10 # while tracking, a weaker detection near the prediction is accepted
+  handoff_conf: 0.20 # a ball found where the neighbouring camera said it would enter
+  patch_size: 288 # zoomed search patch around the predicted ball, in camera pixels (multiple of 32)
+  patch_size_max: 448 # the patch grows while the ball is uncertain (missed frames)
+  search_radius: 60 # px: a candidate must be this close to the prediction (grows with uncertainty)
+  max_predict_frames: 12 # keep predicting this many frames without a detection, then "lost"
+  drag: 0.04 # the ball slows down by this fraction per frame while predicted
+  min_ball_px: 3 # plausible ball size in camera pixels (a ball in a 2560-wide panorama is ~5-12 px)
+  max_ball_px: 60
+  max_aspect: 2.0 # width/height (or height/width) above this is not a ball (socks, lines)
+  reacquire_conf: 0.5 # a full search finding a ball this sure, far from a shaky track, takes over
+
+handoff: # split mode only: the cameras touch, so a ball leaving one enters the next
+  enabled: true
+  edge_px: 60 # the ball counts as "at the edge" within this many px of the shared border
+  seed_frames: 15 # the next camera searches at the entry point for this many frames
+
+# ---------------------------------------------------------------------------------------------
+# DIRECTOR: which camera is live. Same rules as MVP 1.
+# ---------------------------------------------------------------------------------------------
+director:
+  start_cam: 2
+  score_detected: 100
+  score_predicted: 60 # predicted or handed over
+  score_center_max: 30 # ball exactly in the middle of the camera = +30, at the edge = +0
+  score_per_player: 1
+  score_players_max: 10
+  min_shot_seconds: 2.0 # never cut sooner than this
+  hysteresis_seconds: 0.5 # another camera must score higher this long in a row before we cut
+  lost_fallback_seconds: 2.0 # no ball anywhere for this long -> go to the fallback camera
+  fallback_cam: 2
+
+# ---------------------------------------------------------------------------------------------
+# VIRTUAL ZOOM: inside the live camera, a 16:9 crop follows the ball (ai-director2's PTZ idea).
+# ---------------------------------------------------------------------------------------------
+ptz:
+  zoom_tracking: 1.6 # zoom while the ball is clearly tracked (1.0 = whole camera)
+  zoom_lost: 1.0 # zoom out to the whole camera when the ball is lost
+  zoom_fast_ball: 1.2 # zoom out a bit when the ball moves fast (long pass, shot)
+  fast_ball_px: 12 # px per frame that counts as "fast"
+  lead_frames: 8 # aim this many frames ahead of the ball (look where it is going)
+  deadband: 0.08 # don't move while the target is within this fraction of the crop from the centre
+  smoothing: 0.12 # 0..1 per frame: how quickly the crop moves toward the target (lower = smoother)
+  zoom_smoothing: 0.05
+  max_pan_px: 25 # never move the crop more than this per frame (no whip pans)
+
+render:
+  program_size: [1280, 720]
+  debug_tile_height: 360
+  trail_frames: 25

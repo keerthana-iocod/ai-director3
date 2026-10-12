@@ -1,0 +1,8 @@
+# MVP 3 packages. Install inside the project venv:  venv/bin/pip install -r requirements.txt
+ultralytics          # YOLO (the football detector) + torch
+opencv-python        # video reading, cropping, drawing, writing
+numpy
+pyyaml               # config.yaml
+huggingface_hub      # downloads the football model once
+imageio-ffmpeg       # bundled ffmpeg: H.264 + copying the original sound into program.mp4
+pytest               # tests/
