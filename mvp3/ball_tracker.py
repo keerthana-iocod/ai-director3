@@ -12,7 +12,12 @@ Ported from ai-director2's HighRecallBallTracker (cam_director/ball_tracker/), w
   3. Plausibility check: size, shape and distance from the prediction reject socks, boots and lines.
   4. Full-frame search (every few frames, done for all cameras at once by the engine): starts a new
      track, or takes over when the current track is shaky and a much surer ball shows up elsewhere.
-  5. Hand-off (NEW in MVP 3): when the ball leaves the neighbouring camera, this camera is told where
+  5. Static spots (NEW, found on the Alfheim cameras): the penalty spot is a white dot the size of a
+     ball, and YOLO calls it a ball at 0.7 confidence for the whole match. Detections are counted per
+     spot; a spot detected `static_frames` times (with no quiet gap that long) is a pitch mark: the track
+     is dropped and nothing near it counts as a ball again. Counted per spot, not as one unbroken run,
+     because a track can hop between two nearby marks. A kicked ball leaves the spot, so it is still found.
+  6. Hand-off (NEW in MVP 3): when the ball leaves the neighbouring camera, this camera is told where
      it should enter (`seed`) and searches there first, so the ball is picked up immediately.
 
 Every frame ends with a status: detected / predicted / lost.
@@ -117,7 +122,10 @@ class BallTracker:
         self.last_conf = 0.0
         self.seed_point: tuple[float, float] | None = None
         self.seed_left = 0
-        self.stats = {"frames": 0, DETECTED: 0, PREDICTED: 0, LOST: 0, "patch": 0, "full": 0, "handoff": 0}
+        self.static_spots: list[tuple[float, float]] = []
+        self.still_spots: list[list[float]] = []   # [x, y, detections, last frame seen]: maybe pitch marks
+        self.stats = {"frames": 0, DETECTED: 0, PREDICTED: 0, LOST: 0, "patch": 0, "full": 0, "handoff": 0,
+                      "static_spots": 0}
 
     # ------------------------------------------------------------------ public
     @property
@@ -183,6 +191,8 @@ class BallTracker:
 
     def _hit(self, cand: dict, source: str, corrected: bool = True) -> BallState:
         cx, cy = _center(cand["bbox"])
+        if self._sitting_still((cx, cy)):
+            return BallState()
         if corrected:
             cx, cy = self.kalman.correct(cx, cy)
         b = cand["bbox"]
@@ -190,6 +200,29 @@ class BallTracker:
         self.last_conf = cand["conf"]
         self.missed = 0
         return BallState(DETECTED, (cx, cy), self._box(cx, cy), cand["conf"], source, self.kalman.velocity, 0)
+
+    def _sitting_still(self, point: tuple[float, float]) -> bool:
+        """Count the detections on each spot; too many on one spot = a pitch mark, not the ball."""
+        now, limit = self.stats["frames"], self.cfg["static_frames"]
+        self.still_spots = [sp for sp in self.still_spots if now - sp[3] <= limit]   # forget quiet spots
+        spot = next((sp for sp in self.still_spots
+                     if math.dist(point, sp[:2]) <= self.cfg["static_radius_px"]), None)
+        if spot is None:
+            self.still_spots.append([point[0], point[1], 1, now])
+            return False
+        spot[2] += 1
+        spot[3] = now
+        if spot[2] < limit:
+            return False
+        self.static_spots.append((spot[0], spot[1]))
+        self.stats["static_spots"] += 1
+        self.still_spots.remove(spot)
+        self.reset()
+        return True
+
+    def _near_static_spot(self, b: list[float]) -> bool:
+        c = _center(b)
+        return any(math.dist(c, s) <= 2 * self.cfg["static_radius_px"] for s in self.static_spots)
 
     def _miss(self) -> BallState:
         self.missed += 1
@@ -216,7 +249,7 @@ class BallTracker:
         """The most plausible candidate, or None. Lower penalty = better."""
         best, best_penalty = None, float("inf")
         for c in cands:
-            if c["conf"] < min_conf or not self._looks_like_ball(c["bbox"]):
+            if c["conf"] < min_conf or not self._looks_like_ball(c["bbox"]) or self._near_static_spot(c["bbox"]):
                 continue
             if predicted is not None:
                 dist = math.dist(_center(c["bbox"]), predicted)

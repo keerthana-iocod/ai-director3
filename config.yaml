@@ -21,6 +21,14 @@ clips:
     mode: split
     video: "~/ai-director/ai-director/clips/spurs_watford_5min.mp4"
     num_cams: 3
+  alfheim: # 3 REAL synced cameras (Alfheim dataset, Tromsø–Strømsgodset 2013-11-03), 1280x960, 30 fps, no sound.
+    # cam1 = left, cam2 = middle, cam3 = right. Download first: venv/bin/python -m mvp3.fetch_alfheim
+    mode: files
+    cams:
+      - { video: "data/alfheim/cam1.mp4", start_seconds: 0.0 }
+      - { video: "data/alfheim/cam2.mp4", start_seconds: 0.0 }
+      - { video: "data/alfheim/cam3.mp4", start_seconds: 0.0 }
+    audio_from: 2
   # Example for real cameras (uncomment and fill in):
   # mycams:
   #   mode: files
@@ -66,6 +74,8 @@ ball_tracker:
   max_ball_px: 60
   max_aspect: 2.0 # width/height (or height/width) above this is not a ball (socks, lines)
   reacquire_conf: 0.5 # a full search finding a ball this sure, far from a shaky track, takes over
+  static_frames: 90 # a "ball" that sits still this many frames (3 s at 30 fps) is a pitch mark (penalty spot)
+  static_radius_px: 4 # "still" = every detection within this many px; later balls within 2x this are ignored
 
 handoff: # split mode only: the cameras touch, so a ball leaving one enters the next
   enabled: true

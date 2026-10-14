@@ -66,6 +66,7 @@ Set in `config.yaml` → `clips:`.
 |---|---|---|
 | `pano` (default test) | Fixed panoramic camera, 2560×640, 141 s, cut into 3 cameras | The ball crosses all 3 cameras: tests switching, tracking and hand-off together |
 | `spurs` | Tottenham–Watford tactical camera, 1920×1080, 300 s | Longer; the ball stays mostly in the middle strip |
+| `alfheim` | **3 real cameras** (left / middle / right) from the [Alfheim dataset](https://datasets.simula.no/alfheim/), Tromsø–Strømsgodset, 1280×960, 30 fps, 60 s, no sound | Real multi-camera footage. Download first: `venv/bin/python -m mvp3.fetch_alfheim` (`--first`/`--chunks` pick another window, 3 s per chunk). Hand-off is off (separate cameras). |
 | your own | `mode: files`, 3 separate synced videos | Real multi-camera footage (phones on tripods, the Alfheim or SoccerTrack v2 datasets). Hand-off is off in this mode (needs calibration). |
 
 ## Where things are
@@ -90,5 +91,7 @@ Set in `config.yaml` → `clips:`.
   a smaller model fine-tuned on football, an NVIDIA GPU, or a CoreML export are the ways to speed it up.
 - **Hand-off needs touching cameras.** It works for split panoramas only. Separate real cameras need
   calibration first.
+- **Pitch marks.** The penalty spot looks like a ball to YOLO (0.7 confidence). A "ball" that sits still for
+  3 s is marked as a static spot and ignored after that, so a real ball resting there that long (a penalty) is missed.
 - **No ground truth.** The numbers say how often the ball was tracked, not whether every marker was on
   the real ball: check `debug.mp4`.

@@ -79,6 +79,17 @@ def test_tracker_rejects_a_far_jump_and_non_ball_shapes():
     assert t2.step(FRAME, FakeDetector(), sock).status == LOST
 
 
+def test_tracker_drops_a_ball_that_never_moves_like_the_penalty_spot():
+    t = BallTracker(CFG, SIZE)
+    spot = FakeDetector(ball=(400, 300))
+    t.step(FRAME, spot, ball_at(400, 300))
+    statuses = [t.step(FRAME, spot, ball_at(400, 300)).status for _ in range(CFG["ball_tracker"]["static_frames"] + 5)]
+    assert statuses[0] == DETECTED and statuses[-1] == LOST          # marked as a static spot
+    assert t.step(FRAME, spot, ball_at(400, 300, conf=0.9)).status == LOST     # never restarts there
+    s = t.step(FRAME, FakeDetector(), ball_at(500, 320, conf=0.6))             # a real ball elsewhere
+    assert s.status == DETECTED
+
+
 def test_handoff_seeds_the_next_camera():
     trackers = [BallTracker(CFG, SIZE) for _ in range(3)]
     states = [BallState(DETECTED, (840.0, 300.0), velocity=(6.0, 0.0)), BallState(), BallState()]
@@ -121,3 +132,13 @@ def test_virtual_camera_stays_inside_and_follows_smoothly():
     assert abs(box[0] - before[0]) <= CFG["ptz"]["max_pan_px"] + 1        # no whip pan
     snap = v.update(3, SIZE, BallState(DETECTED, (800.0, 600.0)), [])     # a cut snaps
     assert snap[2] >= 780
+
+
+def test_tracker_drops_two_marks_even_when_the_track_hops_between_them():
+    t = BallTracker(CFG, SIZE)
+    t.step(FRAME, FakeDetector(), ball_at(400, 300))
+    statuses = []
+    for i in range(2 * CFG["ball_tracker"]["static_frames"] + 10):
+        mark = (400, 300) if (i // 10) % 2 == 0 else (430, 320)          # hops every 10 frames
+        statuses.append(t.step(FRAME, FakeDetector(ball=mark), ball_at(*mark)).status)
+    assert len(t.static_spots) == 2 and statuses[-1] == LOST                # both marks caught
